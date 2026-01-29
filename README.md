@@ -583,7 +583,7 @@ item_title_20250129_120000.zip
 ### System Dependencies
 
 - **ArcGIS Pro 3.6** with Python environment
-- **Python 3.9+**
+- **Python 3.13+**
 - **Windows** (GUI fully supported)
 - **macOS/Linux** (Not Supported / Not Tested)
 
@@ -803,7 +803,7 @@ For technical support or questions:
 
 ## Changelog
 
-### Version 1.0 (2025-01)
+### Version 1.0 (2026-01)
 - Initial release with three backup modes
 - GUI application with real-time logging
 - Support for .zip and .contentexport formats
