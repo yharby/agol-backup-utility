@@ -43,8 +43,8 @@ A comprehensive backup and restore solution for ArcGIS Online (AGOL) and ArcGIS 
 - CSV-based inventory export with comprehensive metadata
 
 ### 💾 Flexible Backup Formats
-- **Standard ZIP** - Per-item .zip files with full metadata and resources
-- **OCM Per-Item** - Individual .contentexport files for each item (OCM format)
+- **Standard ZIP** - Per-item .zip files with full metadata and resources (For offline longterm backups)
+- **OCM Per-Item** - Individual .contentexport files for each item (OCM format) - (Updated with the API, First implementation currently with limitations)
 - **OCM Batch** - Single .contentexport file containing all items and dependencies (most efficient)
 
 ### 🔄 Advanced Restoration
@@ -52,7 +52,6 @@ A comprehensive backup and restore solution for ArcGIS Online (AGOL) and ArcGIS 
 - Preserves original metadata and thumbnails
 - Handles item-to-item relationships
 - Feature layer data restoration with spatial data
-- Survey123 form backup and recovery
 
 ### ⚙️ User Interface
 - Professional GUI built with Tkinter
@@ -437,7 +436,7 @@ python restore.py --backup backups/item_name_20250129_120000.zip --connection ho
 
 ## Backup Modes
 
-### Standard ZIP Backup
+### Standard ZIP Backup - For Offline Backup's
 - **Format:** Per-item .zip files
 - **Contents:**
   - `*_metadata.json`: Minimal metadata
@@ -450,20 +449,20 @@ python restore.py --backup backups/item_name_20250129_120000.zip --connection ho
 
 - **Advantages:**
   - Individual backup per item
-  - Easy selective restore
   - Maximum flexibility
   - Compatible with all item types
 
 - **Disadvantages:**
   - More files (one .zip per item)
   - No automatic dependency handling
+  - Restore Limitations - Might have to manually restore or recreate to avoid conflicts.
 
 **Example:**
 ```bash
 python backup.py --csv items.csv --dest backups/ --mode standard
 ```
 
-### OCM Per-Item Backup
+### OCM Per-Item Backup (Recommended)
 - **Format:** Per-item .contentexport files
 - **Contents:**
   - AGOL/Portal native OCM format
@@ -474,9 +473,11 @@ python backup.py --csv items.csv --dest backups/ --mode standard
   - Native AGOL format
   - Includes automatic dependency resolution
   - Individual .contentexport per item
+  - Won't disturb existing realted features
 
 - **Disadvantages:**
   - Still one file per item
+  - Must remove the original from source if that needs to be restored. (Preserve ID is not possible on AGOL)
   - Requires ArcGIS API >= 2.4.1
 
 **Example:**
@@ -484,7 +485,7 @@ python backup.py --csv items.csv --dest backups/ --mode standard
 python backup.py --csv items.csv --dest backups/ --mode ocm_per_item
 ```
 
-### OCM Batch Backup (Recommended)
+### OCM Batch Backup
 - **Format:** Single .contentexport file
 - **Contents:**
   - All selected items in one package
@@ -803,8 +804,8 @@ For technical support or questions:
 
 ## Changelog
 
-### Version 1.1 (03/02/2026)
-- GUI updates.
+### Version 1.1.1 (03/02/2026)
+- UI updates.
 - Non functional Restore button fixed
 - Restore script updated with more verbose logging.
 - OCM limitation - It will skip if an item already exists while restoring. (To prevent data lose, If you want to restore, remove the existing files from AGOL)
