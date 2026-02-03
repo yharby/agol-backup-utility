@@ -450,33 +450,82 @@ class App(tk.Tk):
         self.Progress.start(10)
         self._SetButtons(Running=True)
         
-        # Show progress popup
+        # Show progress popup with log viewer
         self._ProgressWindow = tk.Toplevel(self)
         self._ProgressWindow.title("Operation in Progress")
-        self._ProgressWindow.geometry("400x150")
-        self._ProgressWindow.resizable(False, False)
+        self._ProgressWindow.geometry("600x400")
+        self._ProgressWindow.resizable(True, True)
         self._ProgressWindow.protocol("WM_DELETE_WINDOW", self._OnProgressWindowClose)
         
         # Center the progress window on the main window
         self.update_idletasks()
-        x = self.winfo_x() + (self.winfo_width() // 2) - 200
-        y = self.winfo_y() + (self.winfo_height() // 2) - 75
+        x = self.winfo_x() + (self.winfo_width() // 2) - 300
+        y = self.winfo_y() + (self.winfo_height() // 2) - 200
         self._ProgressWindow.geometry(f"+{x}+{y}")
         
         # Progress window content
-        ttk.Label(self._ProgressWindow, text="Operation in Progress", font=('Segoe UI', 12, 'bold')).pack(pady=(20, 10))
-        ttk.Label(self._ProgressWindow, text="Please wait...", foreground="#666666").pack(pady=(0, 15))
+        ttk.Label(self._ProgressWindow, text="Operation in Progress", font=('Segoe UI', 12, 'bold')).pack(pady=(10, 5))
         
-        self._ProgressPopupBar = ttk.Progressbar(self._ProgressWindow, mode="indeterminate", length=300)
-        self._ProgressPopupBar.pack(pady=10, padx=20)
+        # Add animated progress bar
+        self._ProgressPopupBar = ttk.Progressbar(self._ProgressWindow, mode="indeterminate", length=500)
+        self._ProgressPopupBar.pack(pady=5, padx=20, fill="x")
         self._ProgressPopupBar.start(10)
         
-        self._ProgressCancelBtn = ttk.Button(self._ProgressWindow, text="Stop Operation", 
+        # Add log text area (NEW)
+        LogFrame = ttk.Frame(self._ProgressWindow)
+        LogFrame.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        ttk.Label(LogFrame, text="Activity Log:", font=('Segoe UI', 9, 'bold')).pack(anchor="w", pady=(0, 5))
+        
+        LogScrollY = ttk.Scrollbar(LogFrame, orient="vertical")
+        LogScrollY.pack(side="right", fill="y")
+        
+        self._ProgressLog = tk.Text(
+            LogFrame, 
+            height=12, 
+            width=70,
+            wrap="word", 
+            yscrollcommand=LogScrollY.set, 
+            font=('Consolas', 8), 
+            bg="#f8f8f8", 
+            fg="#000000", 
+            bd=1, 
+            relief="flat", 
+            state='disabled'
+        )
+        self._ProgressLog.pack(side="left", fill="both", expand=True)
+        LogScrollY.config(command=self._ProgressLog.yview)
+        
+        # Control buttons frame
+        BtnFrame = ttk.Frame(self._ProgressWindow)
+        BtnFrame.pack(fill="x", padx=10, pady=(5, 10))
+        
+        self._ProgressCancelBtn = ttk.Button(BtnFrame, text="Stop Operation", 
                                             command=self._StopRunning, style='Accent.TButton')
-        self._ProgressCancelBtn.pack(pady=10)
+        self._ProgressCancelBtn.pack(side="left", padx=5)
+        
+        ttk.Label(BtnFrame, text="Close this window to view full log in main window", 
+                 foreground="#666666", font=('Segoe UI', 8, 'italic')).pack(side="left", padx=20)
+        
+        # Store original log callback and wrap it
+        self._OriginalLogMsg = self._LogMsg
+        self._LogMsg = self._LogMsgWithProgress
         
         self.Runner = ScriptRunner(self._LogMsg, self._OnDone)
         self.Runner.Run(Cmd, Cwd=Cwd)
+    
+    def _LogMsgWithProgress(self, Text: str):
+        """Log to both main window and progress popup"""
+        # Log to main window
+        self._OriginalLogMsg(Text)
+        
+        # Also log to progress popup if it exists
+        if hasattr(self, '_ProgressLog') and self._ProgressLog.winfo_exists():
+            self._ProgressLog.configure(state='normal')
+            self._ProgressLog.insert("end", Text)
+            self._ProgressLog.see("end")
+            self._ProgressLog.update()
+            self._ProgressLog.configure(state='disabled')
     
     def _OnProgressWindowClose(self):
         """Handle progress window close button"""
@@ -488,13 +537,21 @@ class App(tk.Tk):
             self.Runner.Stop()
 
     def _OnDone(self, Success, Code):
+        # Restore original log function
+        if hasattr(self, '_OriginalLogMsg'):
+            self._LogMsg = self._OriginalLogMsg
+        
         self.Progress.stop()
         self._SetButtons(Running=False)
         self._LogMsg("Completed successfully.\n" if Success else f"Finished with errors (exit code: {Code}).\n")
         
-        # Close progress window
+        # Update progress popup (keep it open, don't close it)
         if hasattr(self, '_ProgressWindow') and self._ProgressWindow.winfo_exists():
-            self._ProgressWindow.destroy()
+            # Change button to "Close" instead of "Stop Operation"
+            self._ProgressCancelBtn.config(text="Close", command=self._CloseProgressWindow)
+            # Stop the progress bar
+            if hasattr(self, '_ProgressPopupBar'):
+                self._ProgressPopupBar.stop()
         
         if self.TempCsvPath and os.path.exists(self.TempCsvPath):
             try:
@@ -506,6 +563,11 @@ class App(tk.Tk):
         
         self.Runner = None
         self._UpdateScanStatus()
+    
+    def _CloseProgressWindow(self):
+        """Close the progress window"""
+        if hasattr(self, '_ProgressWindow') and self._ProgressWindow.winfo_exists():
+            self._ProgressWindow.destroy()
 
     def _SetButtons(self, Running: bool):
         StateRun = "disabled" if Running else "normal"
