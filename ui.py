@@ -2,7 +2,6 @@ import os, sys, threading, subprocess, json, csv, tempfile, zipfile
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from datetime import datetime
-from restore import restore_backup
 
 CONFIG_PATH = "config.json"
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -105,7 +104,7 @@ class App(tk.Tk):
             pass
 
         self.title("Frontenac AGOL Backup Utility")
-        self.geometry("1100x750")
+        self.geometry("1100x900")
         self.Cfg = LoadConfig()
         self.Runner = None
         self.TempCsvPath = None
@@ -316,7 +315,7 @@ class App(tk.Tk):
         self.BackupStatusLabel.pack(side="left", padx=20)
 
         TreeFrame = ttk.Frame(Parent)
-        TreeFrame.pack(fill="both", expand=True)
+        TreeFrame.pack(fill="both", expand=True, pady=(0, 15))
         TreeScrollY = ttk.Scrollbar(TreeFrame, orient="vertical")
         TreeScrollY.pack(side="right", fill="y")
 
@@ -324,7 +323,8 @@ class App(tk.Tk):
             TreeFrame,
             columns=("Select", "Title", "ID", "Type", "URL"),
             show="headings",
-            yscrollcommand=TreeScrollY.set
+            yscrollcommand=TreeScrollY.set,
+            height=12
         )
         TreeScrollY.config(command=self.BackupTree.yview)
 
@@ -346,7 +346,7 @@ class App(tk.Tk):
     # ------------------- Restore Tab -------------------
     def _BuildRestoreTab(self, Parent):
         ttk.Label(Parent, text="Restore items from backups.", 
-                  font=('Segoe UI', 12, 'bold')).pack(anchor="w", pady=(0, 5))
+                  font=('Segoe UI', 12, 'bold')).pack(anchor="w", pady=(0, 15))
         
         InfoFrame = ttk.LabelFrame(Parent, text="Backup Format Info", padding=(15, 15))
         InfoFrame.pack(fill="x", pady=(0, 15))
@@ -362,6 +362,7 @@ class App(tk.Tk):
         SelectFrame.pack(fill="x", pady=(0, 10))
         ttk.Label(SelectFrame, text="Backup File:", width=15).pack(side="left", padx=5)
         self.RestorePathVar = tk.StringVar()
+        self.RestorePathVar.trace_add("write", self._OnRestorePathChanged)
         ttk.Entry(SelectFrame, textvariable=self.RestorePathVar, width=80, state="readonly").pack(side="left", padx=5, fill="x", expand=True)
         ttk.Button(SelectFrame, text="Browse...", command=self._SelectRestoreBackup, width=10).pack(side="left", padx=5)
         
@@ -385,6 +386,14 @@ class App(tk.Tk):
                                           foreground="#666666", font=('Segoe UI', 9, 'italic'))
         self.RestoreInfoLabel.pack(side="left", padx=20)
 
+    def _OnRestorePathChanged(self, *args):
+        """Called whenever RestorePathVar changes - updates button state"""
+        Path = self.RestorePathVar.get().strip()
+        if Path and os.path.exists(Path):
+            self.RestoreBtn.config(state="normal")
+        else:
+            self.RestoreBtn.config(state="disabled")
+
     def _SelectRestoreBackup(self):
         Path = filedialog.askopenfilename(
             title="Select Backup File",
@@ -401,7 +410,6 @@ class App(tk.Tk):
                 FileType = "ContentExport" if Path.endswith(".contentexport") else "ZIP"
                 InfoText = f"File: {os.path.basename(Path)} | Type: {FileType} | Size: {SizeMb:.2f} MB | Modified: {ModTime}"
                 self.RestoreInfoLabel.config(text=InfoText)
-                self.RestoreBtn.config(state="normal")
     
     def _RunRestore(self):
         BackupPath = self.RestorePathVar.get().strip()
@@ -412,19 +420,25 @@ class App(tk.Tk):
         Overwrite = self.RestoreOverwriteVar.get()
         KeepMetadata = self.RestoreKeepMetadataVar.get()
         
-        try:
-            self._LogMsg(f"Restoring from: {BackupPath}\n")
-            self._LogMsg(f"Overwrite: {Overwrite} | Keep metadata: {KeepMetadata}\n")
-            Success, ItemId = restore_backup(BackupPath, overwrite=Overwrite, keep_metadata=KeepMetadata)
-            if Success:
-                self._LogMsg(f"[OK] Restore completed: {ItemId}\n")
-                messagebox.showinfo("Success", f"Restore completed successfully!\nItem ID: {ItemId}")
-            else:
-                self._LogMsg(f"[ERR] Restore failed.\n")
-                messagebox.showerror("Error", "Restore operation failed. Check the log for details.")
-        except Exception as e:
-            self._LogMsg(f"[ERR] Restore error: {e}\n")
-            messagebox.showerror("Error", f"Restore error: {e}")
+        self._LogMsg(f"\nRestoring from: {BackupPath}\n")
+        self._LogMsg(f"Overwrite: {Overwrite} | Keep metadata: {KeepMetadata}\n")
+        
+        # Create a restore script command that will be executed asynchronously
+        RestoreScript = os.path.join(script_dir, "restore.py")
+        
+        Cmd = [
+            sys.executable, 
+            RestoreScript, 
+            "--backup", BackupPath,
+            "--connection", "home"
+        ]
+        
+        if Overwrite:
+            Cmd.append("--overwrite")
+        if KeepMetadata:
+            Cmd.append("--keep-metadata")
+        
+        self._StartRun(Cmd, Cwd=script_dir)
 
     # ------------------- Run/Stop -------------------
     def _StartRun(self, Cmd, Cwd=None):
@@ -435,8 +449,38 @@ class App(tk.Tk):
         self._LogMsg("\n" + "="*80 + "\n")
         self.Progress.start(10)
         self._SetButtons(Running=True)
+        
+        # Show progress popup
+        self._ProgressWindow = tk.Toplevel(self)
+        self._ProgressWindow.title("Operation in Progress")
+        self._ProgressWindow.geometry("400x150")
+        self._ProgressWindow.resizable(False, False)
+        self._ProgressWindow.protocol("WM_DELETE_WINDOW", self._OnProgressWindowClose)
+        
+        # Center the progress window on the main window
+        self.update_idletasks()
+        x = self.winfo_x() + (self.winfo_width() // 2) - 200
+        y = self.winfo_y() + (self.winfo_height() // 2) - 75
+        self._ProgressWindow.geometry(f"+{x}+{y}")
+        
+        # Progress window content
+        ttk.Label(self._ProgressWindow, text="Operation in Progress", font=('Segoe UI', 12, 'bold')).pack(pady=(20, 10))
+        ttk.Label(self._ProgressWindow, text="Please wait...", foreground="#666666").pack(pady=(0, 15))
+        
+        self._ProgressPopupBar = ttk.Progressbar(self._ProgressWindow, mode="indeterminate", length=300)
+        self._ProgressPopupBar.pack(pady=10, padx=20)
+        self._ProgressPopupBar.start(10)
+        
+        self._ProgressCancelBtn = ttk.Button(self._ProgressWindow, text="Stop Operation", 
+                                            command=self._StopRunning, style='Accent.TButton')
+        self._ProgressCancelBtn.pack(pady=10)
+        
         self.Runner = ScriptRunner(self._LogMsg, self._OnDone)
         self.Runner.Run(Cmd, Cwd=Cwd)
+    
+    def _OnProgressWindowClose(self):
+        """Handle progress window close button"""
+        pass  # Don't allow closing via X button
 
     def _StopRunning(self):
         if self.Runner:
@@ -447,6 +491,10 @@ class App(tk.Tk):
         self.Progress.stop()
         self._SetButtons(Running=False)
         self._LogMsg("Completed successfully.\n" if Success else f"Finished with errors (exit code: {Code}).\n")
+        
+        # Close progress window
+        if hasattr(self, '_ProgressWindow') and self._ProgressWindow.winfo_exists():
+            self._ProgressWindow.destroy()
         
         if self.TempCsvPath and os.path.exists(self.TempCsvPath):
             try:
@@ -467,7 +515,11 @@ class App(tk.Tk):
         except Exception:
             pass
         self.BackupBtn.config(state=StateRun if self.BackupItems else "disabled")
-        self.RestoreBtn.config(state=StateRun if self.RestorePathVar.get() else "disabled")
+        # Restore button state is now controlled by _OnRestorePathChanged
+        if not Running and self.RestorePathVar.get().strip() and os.path.exists(self.RestorePathVar.get().strip()):
+            self.RestoreBtn.config(state="normal")
+        elif Running:
+            self.RestoreBtn.config(state="disabled")
         self.StopBtn.config(state=StateStop)
 
     # ------------------- Backup logic -------------------
